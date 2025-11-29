@@ -1,0 +1,264 @@
+import asyncio
+import logging
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram import Bot, Dispatcher, types
+from aiogram import F
+from aiogram.filters.command import Command
+from openpyxl import Workbook, load_workbook
+from datetime import datetime
+import os
+
+
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(token="8008540772:AAEGgdwnePgUsAig8G5ScbQLWQm8dHtivKo")
+dp = Dispatcher()
+
+mass = {}
+
+user_selected_product = {}
+
+def save_order_to_excel(user_fullname: str, cart: dict):
+    EXCEL_FILE = "orders.xlsx"
+
+    if not os.path.exists(EXCEL_FILE):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Orders"
+        wb.save(EXCEL_FILE)
+    else:
+        wb = load_workbook(EXCEL_FILE)
+
+    ws = wb.active
+
+    row = [datetime.now().strftime("%Y-%m-%d %H:%M"), user_fullname]
+
+    for product_name, amount in cart.items():
+        row.append(product_name)
+        row.append(amount)
+
+    ws.append(row)
+    wb.save(EXCEL_FILE)
+
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        types.KeyboardButton(text="Корзина"),
+        types.KeyboardButton(text="Список товаров")
+    )
+
+    await message.answer(
+        "Система заказов печатной продукции",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+
+
+
+@dp.message(F.text.lower() == "список товаров")
+async def show_products(message: types.Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        types.KeyboardButton(text="Назад"),
+        types.KeyboardButton(text="Положить в корзину")
+    )
+
+    await message.answer(
+        "Список товаров:\n"
+        "товар1\n"
+        "товар2\n"
+        "товар3\n"
+        "товар4\n"
+        "товар5",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+
+@dp.message(F.text.lower() == "положить в корзину")
+async def choose_product(message: types.Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(types.KeyboardButton(text="Товар1"), types.KeyboardButton(text="Товар2"))
+    builder.row(types.KeyboardButton(text="Товар3"), types.KeyboardButton(text="Товар4"))
+    builder.row(types.KeyboardButton(text="Товар5"))
+
+    await message.answer(
+        "Выберите товар:",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+
+@dp.message(F.text.in_(["Товар1", "Товар2", "Товар3", "Товар4", "Товар5"]))
+async def add_to_cart(message: types.Message):
+    user_selected_product[message.from_user.id] = message.text
+    await message.answer(
+        f"Введите количество {message.text}:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+
+
+
+@dp.message(F.text.lower() == "вернуться к выбору товаров")
+async def return_to_products(message: types.Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(types.KeyboardButton(text="Товар1"),
+                types.KeyboardButton(text="Товар2"))
+    builder.row(types.KeyboardButton(text="Товар3"),
+                types.KeyboardButton(text="Товар4"))
+    builder.row(types.KeyboardButton(text="Товар5"))
+    await message.answer( "Выберите товар:", reply_markup=builder.as_markup(resize_keyboard=True) )
+
+
+
+
+###############################################  КОРЗИНА  ##########################################
+
+@dp.message(F.text.lower() == "корзина")
+async def show_cart(message: types.Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        types.KeyboardButton(text="Назад"),
+        types.KeyboardButton(text="Заказать"),
+        types.KeyboardButton(text="Удалить товар")
+    )
+
+    if mass:
+        cart_text = "Ваша корзина:\n" + "\n".join(
+            f"• {name}   x{amount}" for name, amount in mass.items()
+        )
+    else:
+        cart_text = "Ваша корзина пуста."
+
+    await message.answer(
+        cart_text,
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+
+@dp.message(F.text.lower() == "заказать")
+async def order(message: types.Message):
+    await message.answer("Укажите адрес доставки")
+
+
+@dp.message(F.text.lower() == "назад")
+async def go_back(message: types.Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        types.KeyboardButton(text="Корзина"),
+        types.KeyboardButton(text="Список товаров")
+    )
+
+    await message.answer(
+        "Система заказов печатной продукции",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+
+
+@dp.message(F.text.lower() == "удалить товар")
+async def delete_choose(message: types.Message):
+    if not mass:
+        await message.answer("Корзина пуста, удалять нечего.")
+        return
+
+    builder = ReplyKeyboardBuilder()
+
+    for name in mass.keys():
+        builder.row(types.KeyboardButton(text=f"Удалить {name}"))
+
+    builder.row(types.KeyboardButton(text="Корзина"))
+
+    await message.answer(
+        "Выберите товар, который нужно удалить:",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+
+@dp.message(F.text.regexp(r"^Удалить\s+(.+)$"))
+async def delete_product(message: types.Message):
+    product = message.text.replace("Удалить ", "").strip()
+
+    if product in mass:
+        del mass[product]
+        await message.answer(f"{product} удалён из корзины.")
+    else:
+        await message.answer("Этого товара нет в корзине.")
+
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        types.KeyboardButton(text="Назад"),
+        types.KeyboardButton(text="Заказать"),
+        types.KeyboardButton(text="Удалить товар")
+    )
+
+    if mass:
+        pretty = "Ваша корзина:\n" + "\n".join(f"• {n} x{a}" for n, a in mass.items())
+    else:
+        pretty = "Ваша корзина пуста."
+
+    await message.answer(pretty, reply_markup=builder.as_markup(resize_keyboard=True))
+
+
+
+@dp.message(F.text.regexp(r"^\d+$"))
+async def get_amount(message: types.Message):
+    user_id = message.from_user.id
+
+    if user_id not in user_selected_product:
+        return
+
+    product = user_selected_product[user_id]
+    amount = int(message.text)
+
+    if product in mass:
+        mass[product] += amount
+    else:
+        mass[product] = amount
+
+    del user_selected_product[user_id]
+
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        types.KeyboardButton(text="Вернуться к выбору товаров"),
+        types.KeyboardButton(text="Корзина")
+    )
+
+    await message.answer(
+        f"{product}   x{amount} добавлен в корзину",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+@dp.message(F.text)
+async def wrong_amount(message: types.Message):
+    user_id = message.from_user.id
+
+    if user_id in user_selected_product:
+
+        if not message.text.isdigit():
+            await message.answer("Некорректное число. Введите только цифры.")
+            return
+
+    return
+
+
+@dp.message()
+async def get_address(message: types.Message):
+    user_id = message.from_user.id
+    if message.reply_to_message and "Укажите адрес доставки" in message.reply_to_message.text:
+
+        save_order_to_excel(
+            message.from_user.full_name,
+            mass
+        )
+        await message.answer("Ваш заказ сохранён")
+        mass.clear()
+
+
+######################################################################################
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
